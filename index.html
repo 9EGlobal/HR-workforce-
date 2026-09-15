@@ -449,6 +449,39 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="tempEmpOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <h3 id="tempEmpTitle">Add Temp Staff</h3>
+        <div class="sub" id="tempEmpSub">Adds to the live temp register (saved locally in this browser)</div>
+      </div>
+      <button class="modal-close" id="tempEmpClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="tempEmpForm" class="form-grid">
+        <div class="form-field"><label>Full Name *</label><input type="text" name="name" required></div>
+        <div class="form-field"><label>Location</label><input type="text" name="location" placeholder="e.g. Dubai, India, UK"></div>
+        <div class="form-field"><label>Department</label><input type="text" name="department" placeholder="e.g. Structures"></div>
+        <div class="form-field"><label>Designation</label><input type="text" name="designation"></div>
+        <div class="form-field"><label>Agency / Company</label><input type="text" name="company"></div>
+        <div class="form-field"><label>Status</label>
+          <select name="status"><option value="Active">Active</option><option value="Inactive">Inactive</option></select>
+        </div>
+        <div class="form-field"><label>Start Date</label><input type="date" name="startDate"></div>
+        <div class="form-field"><label>End Date</label><input type="date" name="endDate"></div>
+        <div class="form-field"><label>Monthly Cost (AED)</label><input type="number" name="monthlyCost" step="0.01"></div>
+        <div class="form-field full"><label>Comments</label><input type="text" name="comments" placeholder="Optional"></div>
+      </form>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="tempEmpDeleteBtn" style="margin-right:auto;">Delete Record</button>
+      <button class="btn btn-secondary" id="tempEmpCancel">Cancel</button>
+      <button class="btn btn-primary" id="tempEmpSave">Save Temp Staff</button>
+    </div>
+  </div>
+</div>
+
 
 
 <script id="data-blob" type="application/json">
@@ -1098,11 +1131,12 @@ renderView.temp = function(){
       </table>
     </div>
 
-    <div class="section-title"><h2>Temp Staff Register</h2><div class="sub">${TEMP.length} records — sortable, searchable</div></div>
+    <div class="section-title"><h2>Temp Staff Register</h2><div class="sub">${TEMP.length} records — sortable, searchable. Click any row to edit or delete.</div></div>
     <div class="filters">
       <input type="text" id="temp-search" placeholder="Search name, designation, agency…">
       <select id="temp-dept-filter"><option value="">All departments</option></select>
       <select id="temp-status-filter"><option value="">All statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option></select>
+      <button class="btn btn-primary" id="temp-add-btn">+ Add Temp Staff</button>
       <span class="count" id="temp-count"></span>
     </div>
     <div class="tbl-wrap">
@@ -1138,16 +1172,21 @@ renderView.temp = function(){
       return true;
     });
     document.getElementById('temp-count').innerHTML = `<b>${rows.length}</b> of ${TEMP.length}`;
-    document.querySelector('#temp-table tbody').innerHTML = rows.map(x=>`<tr>
-      <td>${x.name||'—'}</td><td>${x.location||'—'}</td><td><span class="pill dept">${x.department||'—'}</span></td>
-      <td>${x.designation||'—'}</td><td>${x.company||'—'}</td>
-      <td>${x.startDate||'—'}</td><td>${x.endDate||'—'}</td>
-      <td><span class="pill ${x.status==='Active'?'active':'inactive'}">${x.status||'—'}</span></td>
+    document.querySelector('#temp-table tbody').innerHTML = rows.map((x,i)=>`<tr class="clickable" data-idx="${i}">
+      <td>${esc(x.name)||'—'}</td><td>${esc(x.location)||'—'}</td><td><span class="pill dept">${esc(x.department)||'—'}</span></td>
+      <td>${esc(x.designation)||'—'}</td><td>${esc(x.company)||'—'}</td>
+      <td>${esc(x.startDate)||'—'}</td><td>${esc(x.endDate)||'—'}</td>
+      <td><span class="pill ${x.status==='Active'?'active':'inactive'}">${esc(x.status)||'—'}</span></td>
       <td class="mono mask-salary">${x.monthlyCost?fmtAED(x.monthlyCost):'—'}</td></tr>`).join('');
+    window._tempTableRows = rows;
+    document.querySelectorAll('#temp-table tbody tr').forEach(tr=>{
+      tr.addEventListener('click', ()=>{ if(window.openTempEmpModal) window.openTempEmpModal(window._tempTableRows[+tr.dataset.idx]); });
+    });
   }
   document.getElementById('temp-search').addEventListener('input', renderTempTable);
   document.getElementById('temp-dept-filter').addEventListener('change', renderTempTable);
   document.getElementById('temp-status-filter').addEventListener('change', renderTempTable);
+  document.getElementById('temp-add-btn').addEventListener('click', ()=>{ if(window.openTempEmpModal) window.openTempEmpModal(); });
   renderTempTable();
 };
 
@@ -1425,7 +1464,7 @@ renderView.directory = function(){
       </table>
     </div>
   `;
-  document.getElementById('dir-add-btn').addEventListener('click', openAddEmpModal);
+  document.getElementById('dir-add-btn').addEventListener('click', ()=>openAddEmpModal());
 
   document.getElementById('dir-office-seg').addEventListener('click', (e)=>{
     const btn = e.target.closest('button[data-office]');
@@ -1531,17 +1570,21 @@ const PPT_REF = DATA.pptReference;
 
 // ============================= HEADCOUNT RECONSTRUCTION (from Excel roster + exit log) =============================
 function monthEndISO(y,m){ return new Date(y, m, 0).toISOString().slice(0,10); } // m is 1-12
-function monthRangeSince(startYear, startMonth){
+function monthRangeSince(startYear, startMonth, monthsAhead){
   const out = [];
   const now = new Date();
   let y = startYear, m = startMonth;
-  while(y < now.getFullYear() || (y===now.getFullYear() && m <= now.getMonth()+1)){
+  const ahead = monthsAhead || 0;
+  let endY = now.getFullYear(), endM = now.getMonth()+1+ahead;
+  while(endM>12){ endM -= 12; endY++; }
+  while(y < endY || (y===endY && m <= endM)){
     out.push({y, m, label: monthEndISO(y,m)});
     m++; if(m>12){ m=1; y++; }
   }
   return out;
 }
-const RECON_MONTHS = monthRangeSince(2026,1);
+// Extends 6 months past today so employees added with a future start date (upcoming joiners) show up.
+const RECON_MONTHS = monthRangeSince(2026,1,6);
 
 function exitOffice(r){
   const e = (r.entity||'').toLowerCase();
@@ -1610,9 +1653,14 @@ function computeRetentionRate(monthISOStr){
 }
 
 function defaultRetentionMonth(){
-  // latest month we can fully compute (needs current + previous month in range)
-  const labels = HEADCOUNT_RECON.labels;
-  const last = labels[labels.length-1];
+  // latest FULLY COMPLETE month, regardless of how far RECON_MONTHS now extends into the future
+  const now = new Date();
+  let y = now.getFullYear(), m = now.getMonth(); // previous calendar month, 1-indexed
+  if(m===0){ y--; m=12; }
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+function maxSelectableRetentionMonth(){
+  const last = HEADCOUNT_RECON.labels[HEADCOUNT_RECON.labels.length-1];
   const [y,m] = last.split('-').map(Number);
   return `${y}-${String(m).padStart(2,'0')}`;
 }
@@ -1667,7 +1715,7 @@ renderView.trends = function(){
     <div class="card">
       <div class="period-bar">
         <label style="font-size:12px;color:${C.n600};">Month:</label>
-        <input type="month" id="rr-month" value="${defMonth}" min="2026-02" max="${defMonth}">
+        <input type="month" id="rr-month" value="${defMonth}" min="2026-02" max="${maxSelectableRetentionMonth()}">
         <span class="count" id="rr-count"></span>
       </div>
       <div class="grid grid-2-1">
@@ -1759,37 +1807,48 @@ function buildRetentionModule(monthStr){
     document.getElementById('rr-hires-list').innerHTML = '';
     return;
   }
+  const isFuture = new Date(monthStr+'-01') > new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   document.getElementById('rr-value').textContent = result.rate.toFixed(1)+'%';
-  document.getElementById('rr-sub').textContent = `Retention rate for ${result.periodLabel}`;
+  document.getElementById('rr-sub').textContent = (isFuture ? 'Projected retention for ' : 'Retention rate for ') + result.periodLabel + (isFuture ? ' — based on joiners already added with a future start date' : '');
   document.getElementById('rr-calc').textContent = `(${result.endHC} − ${result.newHires}) ÷ ${result.startHC} × 100 = ${result.rate.toFixed(2)}%`;
-  document.getElementById('rr-count').innerHTML = `<b>${result.newHires}</b> new hire(s) this period`;
+  document.getElementById('rr-count').innerHTML = `<b>${result.newHires}</b> ${isFuture?'expected joiner(s)':'new hire(s)'} this period`;
 
   const hiresListEl = document.getElementById('rr-hires-list');
   if(result.hiresList && result.hiresList.length){
     hiresListEl.innerHTML = '<ul class="legend-list">' + result.hiresList.map(p=>
-      `<li><span class="name">${esc(p.name)} <span class="mono" style="color:${C.n400};margin-left:4px;">${esc(p.dept||'—')} · ${p.office==='Dubai'?'Dubai':esc(p.location||'India')}</span></span><span class="val">${esc(p.startDate||'—')}</span></li>`
+      `<li><span class="name">${esc(p.name)} <span class="mono" style="color:${C.n400};margin-left:4px;">${esc(p.dept||'—')} · ${p.office==='Dubai'?'Dubai':esc(p.location||'India')}</span>${isFuture?' <span class="pill dept" style="margin-left:6px;">Upcoming</span>':''}</span><span class="val">${esc(p.startDate||'—')}</span></li>`
     ).join('') + '</ul>';
   } else {
-    hiresListEl.innerHTML = '<div class="card-sub">No new hires recorded in this period.</div>';
+    hiresListEl.innerHTML = `<div class="card-sub">${isFuture ? 'No upcoming joiners on file for this period yet — add them via Directory / Add Employee with a future Date of Joining and they\'ll show up here.' : 'No new hires recorded in this period.'}</div>`;
   }
 
-  // Trend across all reconstructable months, keeping each month's hire list for the tooltip
-  const trendLabels = [], trendVals = [], trendHires = [];
+  // Trend across all reconstructable months (past + up to 6mo ahead), keeping each month's hire list for the tooltip
+  const todayMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const trendLabels = [], trendVals = [], trendHires = [], trendIsFuture = [];
   HEADCOUNT_RECON.labels.forEach(lbl=>{
     const [y,m] = lbl.split('-').map(Number);
     const ms = `${y}-${String(m).padStart(2,'0')}`;
     const r = computeRetentionRate(ms);
-    if(r){ trendLabels.push(ms); trendVals.push(+r.rate.toFixed(1)); trendHires.push(r.hiresList||[]); }
+    if(r){
+      trendLabels.push(ms); trendVals.push(+r.rate.toFixed(1)); trendHires.push(r.hiresList||[]);
+      trendIsFuture.push(new Date(y, m-1, 1) > todayMonthStart);
+    }
   });
   mkChart('rr-trend', {
     type:'line',
-    data:{ labels:trendLabels, datasets:[{ data:trendVals, borderColor:C.red, backgroundColor:C.redTint, fill:true, tension:.3, pointRadius:3 }] },
+    data:{ labels:trendLabels, datasets:[{
+      data:trendVals, borderColor:C.red, backgroundColor:C.redTint, fill:true, tension:.3, pointRadius:3,
+      pointBackgroundColor: trendIsFuture.map(f=>f?C.warning:C.red),
+      pointBorderColor: trendIsFuture.map(f=>f?C.warning:C.red),
+      segment: { borderDash: ctx => trendIsFuture[ctx.p1DataIndex] ? [6,4] : undefined },
+    }] },
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, datalabels:{display:false},
         tooltip:{ callbacks:{ label:(ctx)=>{
           const names = trendHires[ctx.dataIndex] || [];
-          const lines = ['Retention: '+ctx.parsed.y+'%'];
-          if(names.length){ lines.push(names.length+' joined: '+names.map(p=>p.name).join(', ')); }
-          else { lines.push('No new hires that month'); }
+          const future = trendIsFuture[ctx.dataIndex];
+          const lines = ['Retention: '+ctx.parsed.y+'%'+(future?' (projected)':'')];
+          if(names.length){ lines.push(names.length+(future?' expected: ':' joined: ')+names.map(p=>p.name).join(', ')); }
+          else { lines.push(future?'No upcoming joiners on file yet':'No new hires that month'); }
           return lines;
         } } } },
       scales:{ y:{ grid:{color:C.outline}, ticks:{callback:v=>Math.round(v*10)/10+'%'} }, x:{ grid:{display:false} } } }
@@ -2156,17 +2215,17 @@ function buildBoardDeckExport(){
           s.addText(title, {x:0.5,y:0.28,w:12.3,h:0.6,fontSize:22,bold:true,color:INK,fontFace:'Arial'});
           if(sub) s.addText(sub, {x:0.5,y:0.82,w:12.3,h:0.4,fontSize:11,color:SOFT,fontFace:'Arial'});
         }
-        function stackedColumnSlide(title, sub, categories, seriesObj, seriesOrder){
+
+        function singleColumnSlide(title, sub, categories, values, seriesName){
           const s = pptx.addSlide();
           titleBar(s, title, sub);
-          const chartData = seriesOrder.filter(k=>seriesObj[k]).map((k,i)=>({ name:k, labels:categories, values:seriesObj[k] }));
-          s.addChart('bar', chartData, {
-            x:0.5, y:1.35, w:12.3, h:5.7, barDir:'col', barGrouping:'stacked',
-            showTitle:false, showLegend:true, legendPos:'b', legendFontSize:9,
-            chartColors: CHART_COLORS, catAxisLabelFontSize:9, valAxisLabelFontSize:9,
+          s.addChart('bar', [{ name:seriesName||'Headcount', labels:categories, values:values }], {
+            x:0.5, y:1.35, w:12.3, h:5.7, barDir:'col', barGrouping:'standard',
+            showTitle:false, showLegend:false,
+            chartColors: [INK], catAxisLabelFontSize:9, valAxisLabelFontSize:9,
             catAxisLabelColor:SOFT, valAxisLabelColor:SOFT,
             valGridLine:{color:LINE, size:1}, catGridLine:{style:'none'},
-            dataLabelPosition:'ctr', showValue:false,
+            showValue:true, dataLabelPosition:'outEnd', dataLabelFontSize:9,
           });
         }
 
@@ -2178,10 +2237,9 @@ function buildBoardDeckExport(){
         s.addText('Mirrors the scope of 9E_Ops_board_meeting — Aug 2026, rebuilt from the live dashboard on '+new Date().toLocaleDateString(), {x:0.6,y:3.7,w:12,h:0.5,fontSize:13,color:'BFBFBF',fontFace:'Arial'});
 
         // ---- Slides 2-4: Headcount (reconstructed live trend) ----
-        const hcBuckets = ['STR','Infra','MEP','Site Supervision','AVIT','AOR','Buss. Support','PM','Temp Staff'];
-        stackedColumnSlide('Headcount – UAE & India', 'Reconstructed live from roster start dates + exit log', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.combined, hcBuckets);
-        stackedColumnSlide('Headcount – UAE', 'Reconstructed live', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.dubai, hcBuckets);
-        stackedColumnSlide('Headcount – India', 'Reconstructed live', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.india, hcBuckets);
+        singleColumnSlide('Headcount – UAE & India', 'Reconstructed live from roster start dates + exit log', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.combined, 'Combined');
+        singleColumnSlide('Headcount – UAE', 'Reconstructed live', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.dubai, 'UAE');
+        singleColumnSlide('Headcount – India', 'Reconstructed live', HEADCOUNT_RECON.labels, HEADCOUNT_RECON.india, 'India');
 
         // ---- Slide 5: Eng vs BIM ----
         s = pptx.addSlide();
@@ -2716,6 +2774,13 @@ rendered.overview = true;
 // ============================= EMPLOYEE EDIT / DELETE =============================
 const LS_EMP_EDITS_KEY = '9e_employee_edits';
 const LS_EMP_DELETES_KEY = '9e_employee_deletes';
+// Temp staff key constants declared here (not down in the Temp Staff CRUD section) because
+// applyTempOverrides() is called early during init, below - and const declarations are not
+// accessible before their own line runs (temporal dead zone), even though the function that
+// uses them is hoisted.
+const LS_TEMP_EDITS_KEY = '9e_temp_edits';
+const LS_TEMP_DELETES_KEY = '9e_temp_deletes';
+const LS_CUSTOM_TEMP_KEY = '9e_custom_temp';
 
 function empKey(p){ return p.payroll || p.name; }
 
@@ -2745,6 +2810,7 @@ function applyEmployeeOverrides(){
   });
 }
 applyEmployeeOverrides();
+if(typeof applyTempOverrides === 'function') applyTempOverrides();
 rebuildAllPerm();
 Object.keys(rendered).forEach(k=>delete rendered[k]);
 renderView.overview();
@@ -2908,6 +2974,115 @@ renderView.directory = function(){
     addPersonBtn.addEventListener('click', ()=> openAddEmpModal());
   }
 };
+
+// ============================= TEMP STAFF CRUD =============================
+function tempKey(t){ return [t.name||'', t.department||'', t.designation||'', t.startDate||''].join('|'); }
+
+function loadTempEdits(){ try{ return JSON.parse(localStorage.getItem(LS_TEMP_EDITS_KEY)||'{}'); }catch(e){ return {}; } }
+function saveTempEditPersist(key, changes){
+  const store = loadTempEdits();
+  store[key] = Object.assign(store[key]||{}, changes);
+  localStorage.setItem(LS_TEMP_EDITS_KEY, JSON.stringify(store));
+}
+function loadTempDeletes(){ try{ return JSON.parse(localStorage.getItem(LS_TEMP_DELETES_KEY)||'[]'); }catch(e){ return []; } }
+function saveTempDeletePersist(key){
+  const arr = loadTempDeletes();
+  if(!arr.includes(key)) arr.push(key);
+  localStorage.setItem(LS_TEMP_DELETES_KEY, JSON.stringify(arr));
+}
+function saveCustomTemp(t){
+  const raw = localStorage.getItem(LS_CUSTOM_TEMP_KEY);
+  const arr = raw ? JSON.parse(raw) : [];
+  arr.push(t);
+  localStorage.setItem(LS_CUSTOM_TEMP_KEY, JSON.stringify(arr));
+}
+function applyTempOverrides(){
+  // custom additions
+  try{
+    const custom = JSON.parse(localStorage.getItem(LS_CUSTOM_TEMP_KEY) || '[]');
+    const existingKeys = new Set(TEMP.map(tempKey));
+    custom.forEach(t=>{ if(!existingKeys.has(tempKey(t))){ TEMP.push(t); existingKeys.add(tempKey(t)); } });
+  }catch(e){ console.error('Could not apply custom temp additions', e); }
+  // edits + deletes
+  const edits = loadTempEdits();
+  const deletes = new Set(loadTempDeletes());
+  for(let i=TEMP.length-1; i>=0; i--){
+    const key = tempKey(TEMP[i]);
+    if(deletes.has(key)){ TEMP.splice(i,1); continue; }
+    if(edits[key]) Object.assign(TEMP[i], edits[key]);
+  }
+}
+// (called during init above, right after applyEmployeeOverrides)
+
+let editingTempKey = null;
+window.openTempEmpModal = function(temp){
+  const overlay = document.getElementById('tempEmpOverlay');
+  const form = document.getElementById('tempEmpForm');
+  const deleteBtn = document.getElementById('tempEmpDeleteBtn');
+  if(temp){
+    editingTempKey = tempKey(temp);
+    document.getElementById('tempEmpTitle').textContent = 'Edit Temp Staff';
+    document.getElementById('tempEmpSub').textContent = `Updates ${temp.name}'s record (saved locally in this browser)`;
+    form.name.value = temp.name||'';
+    form.location.value = temp.location||'';
+    form.department.value = temp.department||'';
+    form.designation.value = temp.designation||'';
+    form.company.value = temp.company||'';
+    form.status.value = temp.status||'Active';
+    form.startDate.value = temp.startDate||'';
+    form.endDate.value = temp.endDate||'';
+    form.monthlyCost.value = temp.monthlyCost!=null?temp.monthlyCost:'';
+    form.comments.value = temp.comments||'';
+    deleteBtn.style.display = 'inline-block';
+  } else {
+    editingTempKey = null;
+    document.getElementById('tempEmpTitle').textContent = 'Add Temp Staff';
+    document.getElementById('tempEmpSub').textContent = 'Adds to the live temp register (saved locally in this browser)';
+    form.reset();
+    deleteBtn.style.display = 'none';
+  }
+  overlay.classList.add('open');
+};
+function closeTempEmpModal(){ document.getElementById('tempEmpOverlay').classList.remove('open'); editingTempKey = null; }
+document.getElementById('tempEmpClose').addEventListener('click', closeTempEmpModal);
+document.getElementById('tempEmpCancel').addEventListener('click', closeTempEmpModal);
+document.getElementById('tempEmpOverlay').addEventListener('click', e=>{ if(e.target.id==='tempEmpOverlay') closeTempEmpModal(); });
+
+document.getElementById('tempEmpSave').addEventListener('click', ()=>{
+  const form = document.getElementById('tempEmpForm');
+  if(!form.checkValidity()){ form.reportValidity(); return; }
+  const fd = new FormData(form);
+  const changes = {
+    name: fd.get('name'), location: fd.get('location')||null, department: fd.get('department')||null,
+    designation: fd.get('designation')||null, company: fd.get('company')||null, status: fd.get('status')||'Active',
+    startDate: fd.get('startDate')||null, endDate: fd.get('endDate')||null,
+    monthlyCost: fd.get('monthlyCost')?+fd.get('monthlyCost'):null, comments: fd.get('comments')||null,
+  };
+  if(editingTempKey){
+    const rec = TEMP.find(t=>tempKey(t)===editingTempKey);
+    if(rec){ Object.assign(rec, changes); saveTempEditPersist(editingTempKey, changes); }
+  } else {
+    TEMP.push(changes);
+    saveCustomTemp(changes);
+  }
+  Object.keys(rendered).forEach(k=>delete rendered[k]);
+  closeTempEmpModal();
+  renderView.temp(); rendered.temp = true;
+  goToTab('temp');
+});
+document.getElementById('tempEmpDeleteBtn').addEventListener('click', ()=>{
+  if(!editingTempKey) return;
+  const rec = TEMP.find(t=>tempKey(t)===editingTempKey);
+  if(!rec) return;
+  if(!confirm(`Remove ${rec.name} from the temp staff register?\n\nThis is saved to your browser and persists across reloads.`)) return;
+  const idx = TEMP.findIndex(t=>tempKey(t)===editingTempKey);
+  if(idx>=0) TEMP.splice(idx,1);
+  saveTempDeletePersist(editingTempKey);
+  Object.keys(rendered).forEach(k=>delete rendered[k]);
+  closeTempEmpModal();
+  renderView.temp(); rendered.temp = true;
+  goToTab('temp');
+});
 
 
 // ============================= PASSWORD PROTECTION (client-side UI gate only — see chat note on limitations) =============================
