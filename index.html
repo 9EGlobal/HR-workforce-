@@ -733,6 +733,7 @@ const C = {
 function fmtNum(n){ if(n===null||n===undefined) return '—'; return Math.round(n).toLocaleString('en-IN'); }
 function fmtAED(n){ if(n===null||n===undefined) return '—'; return 'AED ' + Math.round(n).toLocaleString('en-US'); }
 function fmtPct(n){ return n.toFixed(1)+'%'; }
+function safePct(n,d){ return d>0 ? fmtPct(n/d*100) : '—'; }
 function avg(arr){ const v = arr.filter(x=>x!==null&&x!==undefined&&!isNaN(x)); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; }
 // The source Excel has ~19 records with formula errors (e.g. a calendar year like 2027 leaking
 // into a "years of experience" cell, or an age of 126) - exclude these from KPIs/charts rather
@@ -815,12 +816,13 @@ renderView.overview = function(){
   const activeTempCost = sum(activeTemp.map(x=>x.monthlyCost));
   const last12moExits = RESIGNED.filter(r=>r.lastWorkingDay && daysBetween(r.lastWorkingDay,TODAY_STR)<=365 && daysBetween(r.lastWorkingDay,TODAY_STR)>=0).length;
   const attritionRate = total>0 ? ((last12moExits/(total+last12moExits))*100).toFixed(1) : '0.0';
+  const payrollMonthly = (COST_PROJ.combinedTotal && COST_PROJ.combinedTotal.monthlyBase) || 0;
 
   root.innerHTML = `
     <div class="hero">
       <div class="hero-stat"><div class="hv">${total}</div><div class="hl">Total Headcount</div><div class="hf">${DUBAI.length} Dubai · ${INDIA.length} India</div></div>
       <div class="hero-div"></div>
-      <div class="hero-stat"><div class="hv mask-salary" id="mask-hero-payroll">${fmtAED(COST_PROJ.combinedTotal.monthlyBase).replace('AED ','')}</div><div class="hl">Monthly Payroll (AED)</div><div class="hf">Permanent + temp, both offices</div></div>
+      <div class="hero-stat"><div class="hv mask-salary" id="mask-hero-payroll">${fmtAED(payrollMonthly).replace('AED ','')}</div><div class="hl">Monthly Payroll (AED)</div><div class="hf">Permanent + temp, both offices</div></div>
       <div class="hero-div"></div>
       <div class="hero-stat"><div class="hv">${attritionRate}%</div><div class="hl">Annualised Attrition</div><div class="hf">${last12moExits} exits in the last 12 months</div></div>
       <div class="hero-div"></div>
@@ -834,7 +836,7 @@ renderView.overview = function(){
 
     <div class="kpi-row">
       <div class="kpi"><div class="label">Total Headcount</div><div class="value">${total}</div><div class="foot"><b>${DUBAI.length}</b> Dubai · <b>${INDIA.length}</b> India</div></div>
-      <div class="kpi"><div class="label">Gender Ratio</div><div class="value">${fmtPct(male/total*100)} : ${fmtPct(female/total*100)}</div><div class="foot"><b>${male}</b> male · <b>${female}</b> female</div></div>
+      <div class="kpi"><div class="label">Gender Ratio</div><div class="value">${safePct(male,total)} : ${safePct(female,total)}</div><div class="foot"><b>${male}</b> male · <b>${female}</b> female</div></div>
       <div class="kpi"><div class="label">Avg. Tenure (9E)</div><div class="value">${avgTenureAll?avgTenureAll.toFixed(1):'—'}y</div><div class="foot">Across all permanent staff</div></div>
       <div class="kpi"><div class="label">Active Temp Staff</div><div class="value">${activeTemp.length}</div><div class="foot">of ${TEMP.length} total · ≈ <b class="mask-salary" id="mask-ov-temp-cost">${fmtAED(activeTempCost)}</b>/mo</div></div>
       <div class="kpi"><div class="label">Exits, Last 12mo</div><div class="value">${last12moExits}</div><div class="foot"><b>${attritionRate}%</b> annualised attrition</div></div>
@@ -853,8 +855,8 @@ renderView.overview = function(){
         <div class="card-sub">${male} male / ${female} female</div>
         <div class="chart-wrap short"><canvas id="ov-gender-donut"></canvas></div>
         <ul class="legend-list">
-          <li><span class="name"><span class="sw" style="background:${C.ink}"></span>Dubai</span><span class="val">${fmtPct((DUBAI.filter(x=>x.gender==='Female').length/DUBAI.length)*100)} female</span></li>
-          <li><span class="name"><span class="sw" style="background:${C.red}"></span>India</span><span class="val">${fmtPct((INDIA.filter(x=>x.gender==='Female').length/INDIA.length)*100)} female</span></li>
+          <li><span class="name"><span class="sw" style="background:${C.ink}"></span>Dubai</span><span class="val">${safePct(DUBAI.filter(x=>x.gender==='Female').length, DUBAI.length)} female</span></li>
+          <li><span class="name"><span class="sw" style="background:${C.red}"></span>India</span><span class="val">${safePct(INDIA.filter(x=>x.gender==='Female').length, INDIA.length)} female</span></li>
         </ul>
       </div>
     </div>
@@ -871,7 +873,7 @@ renderView.overview = function(){
       <div class="card"><h3>Dubai — Top Nationalities</h3><div class="card-sub">${DUBAI.length} employees, ${new Set(DUBAI.map(x=>x.nationality).filter(Boolean)).size} nationalities represented</div><div class="chart-wrap short"><canvas id="ov-nationality"></canvas></div></div>
     </div>
 
-    <div class="callout"><b>Reading this page —</b> India carries the volume (${INDIA.length} of ${total}, ${fmtPct(INDIA.length/total*100)}), concentrated in Structures and MEP delivery. Temp-staff figures here count only the ${activeTemp.length} currently <b>active</b> engagements (${TEMP.length-activeTemp.length} completed engagements are excluded) — see the Temp Staff tab for the full register.</div>
+    <div class="callout"><b>Reading this page —</b> India carries the volume (${INDIA.length} of ${total}, ${safePct(INDIA.length,total)}), concentrated in Structures and MEP delivery. Temp-staff figures here count only the ${activeTemp.length} currently <b>active</b> engagements (${TEMP.length-activeTemp.length} completed engagements are excluded) — see the Temp Staff tab for the full register.</div>
   `;
 
   const deptsSet = [...new Set(ALL_PERM.map(x=>x.dept).filter(Boolean))];
@@ -956,7 +958,7 @@ function buildLocationView(containerId, opts){
     <div class="section-title"><h2>${title}</h2><div class="sub">${subtitle}</div></div>
     <div class="kpi-row">
       <div class="kpi"><div class="label">Headcount</div><div class="value">${staff.length}</div><div class="foot">Permanent staff</div></div>
-      <div class="kpi"><div class="label">Gender Split</div><div class="value">${male}:${female}</div><div class="foot"><b>${fmtPct(female/staff.length*100)}</b> female</div></div>
+      <div class="kpi"><div class="label">Gender Split</div><div class="value">${male}:${female}</div><div class="foot"><b>${safePct(female,staff.length)}</b> female</div></div>
       <div class="kpi"><div class="label">Avg. Age</div><div class="value">${avgAge?avgAge.toFixed(1):'—'}</div><div class="foot">years</div></div>
       <div class="kpi"><div class="label">Avg. Tenure</div><div class="value">${avgTenure?avgTenure.toFixed(1):'—'}y</div><div class="foot">since joining 9E</div></div>
       <div class="kpi"><div class="label">Avg. Monthly Cost</div><div class="value mask-salary" style="font-size:21px;">${avgSalary?fmtAED(avgSalary):'—'}</div><div class="foot">per head, AED equiv.</div></div>
@@ -2521,7 +2523,7 @@ function buildBoardDeckExport(){
         // ---- Slide 11: Cost / Salary snapshot (live, current — Excel has no historical salary trend) ----
         s = pptx.addSlide();
         titleBar(s, 'Salaries – Current Snapshot', 'Live from Cost Projection sheet — Excel has no historical monthly salary series, so this is a current-state view, not a trend');
-        const salDepts = COST_PROJ.combined.filter(d=>d.monthlyBase>0);
+        const salDepts = (COST_PROJ.combined||[]).filter(d=>d.monthlyBase>0);
         s.addChart('bar', [
           {name:'Permanent', labels:salDepts.map(d=>d.dept), values:salDepts.map(d=>d.permanent)},
           {name:'Temp', labels:salDepts.map(d=>d.dept), values:salDepts.map(d=>d.temp)},
