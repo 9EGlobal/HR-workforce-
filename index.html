@@ -1048,20 +1048,31 @@ renderView.dubai = function(){
 // ============================= COST ANALYSIS =============================
 renderView.cost = function(){
   const root = document.getElementById('view-cost');
-  const dxbTotal = COST_PROJ.dubaiTotal, indTotal = COST_PROJ.indiaTotal, combTotal = COST_PROJ.combinedTotal;
+  const emptyTotal = {monthlyBase:0, permanent:0, temp:0, totalToYearEnd:0};
+  const dxbTotal = COST_PROJ.dubaiTotal || emptyTotal;
+  const indTotal = COST_PROJ.indiaTotal || emptyTotal;
+  const combTotal = COST_PROJ.combinedTotal || emptyTotal;
+  const combinedRows = Array.isArray(COST_PROJ.combined) ? COST_PROJ.combined : [];
+  const indiaRows = Array.isArray(COST_PROJ.india) ? COST_PROJ.india : [];
+  const costDataMissing = combinedRows.length===0;
   const dxbCostSum = sum(DUBAI.map(trueCostDXB));
   const indCostSum = sum(INDIA.map(trueCostIND));
   const blendedAvg = (dxbCostSum+indCostSum)/(DUBAI.length+INDIA.length);
 
-  const topCombinedDept = COST_PROJ.combined.slice().sort((a,b)=>b.monthlyBase-a.monthlyBase)[0];
-  const indiaTempExceedsPerm = COST_PROJ.india.filter(d=>d.permanent>0 && d.temp>d.permanent);
-  let costCalloutText = `<b>${topCombinedDept.dept} carries the heaviest combined run-rate</b> — ${fmtAED(topCombinedDept.monthlyBase)}/mo across both offices.`;
-  if(indiaTempExceedsPerm.length){
-    const d = indiaTempExceedsPerm[0];
-    costCalloutText += ` In India, ${d.dept} temp spend (${fmtAED(d.temp)}/mo) exceeds permanent spend (${fmtAED(d.permanent)}/mo) — worth reviewing whether to convert that capacity to permanent headcount.`;
+  let costCalloutText;
+  if(costDataMissing){
+    costCalloutText = `<b>Cost Projection figures aren't available for the current dataset.</b> The uploaded file's "Cost Projection" sheet either wasn't found or didn't match the expected layout, so department run-rate can't be shown here. Other tabs (Overview, Directory, Attrition) are unaffected — try "Reset to Original Data" from the upload summary, or re-check the sheet name/headers in your file and re-upload.`;
   } else {
-    const secondDept = COST_PROJ.combined.slice().sort((a,b)=>b.monthlyBase-a.monthlyBase)[1];
-    costCalloutText += ` ${secondDept.dept} follows at ${fmtAED(secondDept.monthlyBase)}/mo. No department currently has India temp spend outrunning its permanent spend.`;
+    const topCombinedDept = combinedRows.slice().sort((a,b)=>(b.monthlyBase||0)-(a.monthlyBase||0))[0];
+    const indiaTempExceedsPerm = indiaRows.filter(d=>d.permanent>0 && d.temp>d.permanent);
+    costCalloutText = `<b>${topCombinedDept.dept} carries the heaviest combined run-rate</b> — ${fmtAED(topCombinedDept.monthlyBase)}/mo across both offices.`;
+    if(indiaTempExceedsPerm.length){
+      const d = indiaTempExceedsPerm[0];
+      costCalloutText += ` In India, ${d.dept} temp spend (${fmtAED(d.temp)}/mo) exceeds permanent spend (${fmtAED(d.permanent)}/mo) — worth reviewing whether to convert that capacity to permanent headcount.`;
+    } else {
+      const secondDept = combinedRows.slice().sort((a,b)=>(b.monthlyBase||0)-(a.monthlyBase||0))[1];
+      if(secondDept) costCalloutText += ` ${secondDept.dept} follows at ${fmtAED(secondDept.monthlyBase)}/mo. No department currently has India temp spend outrunning its permanent spend.`;
+    }
   }
 
   root.innerHTML = `
