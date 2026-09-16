@@ -1696,8 +1696,10 @@ const excelBtn = document.getElementById('btnExportExcel');
 if(excelBtn) excelBtn.addEventListener('click', exportToExcel);
 
 // ============================= INIT =============================
-renderView.overview();
-rendered.overview = true;
+try{
+  renderView.overview();
+  rendered.overview = true;
+}catch(e){ console.error('Initial overview render failed', e); }
 
 
 
@@ -2950,11 +2952,13 @@ document.getElementById('uploadResetBtn').addEventListener('click', ()=>{
   location.reload();
 });
 
-applyUploadOverrides();
-rebuildAllPerm();
-Object.keys(rendered).forEach(k=>delete rendered[k]);
-renderView.overview();
-rendered.overview = true;
+try{
+  applyUploadOverrides();
+  rebuildAllPerm();
+  Object.keys(rendered).forEach(k=>delete rendered[k]);
+  renderView.overview();
+  rendered.overview = true;
+}catch(e){ console.error('Applying uploaded data failed — falling back to whatever rendered so far', e); }
 
 
 // ============================= EMPLOYEE EDIT / DELETE =============================
@@ -2995,12 +2999,14 @@ function applyEmployeeOverrides(){
     }
   });
 }
-applyEmployeeOverrides();
-if(typeof applyTempOverrides === 'function') applyTempOverrides();
-rebuildAllPerm();
-Object.keys(rendered).forEach(k=>delete rendered[k]);
-renderView.overview();
-rendered.overview = true;
+try{
+  applyEmployeeOverrides();
+  if(typeof applyTempOverrides === 'function') applyTempOverrides();
+  rebuildAllPerm();
+  Object.keys(rendered).forEach(k=>delete rendered[k]);
+  renderView.overview();
+  rendered.overview = true;
+}catch(e){ console.error('Applying saved edits/deletes failed — falling back to whatever rendered so far', e); }
 
 function findEmployeeByKey(key){
   let person = DUBAI.find(p=>empKey(p)===key);
