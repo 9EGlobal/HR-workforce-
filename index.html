@@ -2555,10 +2555,29 @@ const LS_COST_PROJ_OVERRIDE_KEY = '9e_cost_projection_override';
 const LS_TEMP_CENSUS_OVERRIDE_KEY = '9e_temp_census_override';
 const LS_FULL_DATA_OVERRIDE_KEY = '9e_full_data_override';
 const LS_SOURCE_LABEL_KEY = '9e_source_label';
+// Bumped whenever the upload parser's column/sheet-reading logic changes. A full-data override
+// saved by an older build (with different, possibly buggy, column mapping) is discarded on load
+// rather than silently reapplied, so a fixed build never gets poisoned by a stale broken parse
+// still sitting in the browser's storage from before the fix.
+const UPLOAD_SCHEMA_VERSION = 2;
 
 function cleanName(n){
   if(n===null || n===undefined) return n;
   return String(n).replace(/\u00a0/g,' ').trim().replace(/\s+/g,' ');
+}
+// Applies the same whitespace cleanup as cleanName to any string field (dept, role, gender, etc.),
+// since inconsistent trailing/leading spaces in the source sheet (e.g. "Structures " vs "Structures")
+// would otherwise be treated as two different values and fragment every chart/count grouped by it.
+function cleanStr(v){ return typeof v==='string' ? cleanName(v) : v; }
+// Some department names are entered inconsistently across sheets (an abbreviation in one, the full
+// name in another). Normalize to whatever the rest of the app (Cost Projection sheet, org chart)
+// already treats as canonical, so the same department doesn't fragment into two chart bars.
+const DEPT_ALIASES = { 'infra':'Infrastructure', 'geotechnical':'Geotech', 'geotech':'Geotech', 'structures site':'Structures-Site', 'mep site':'MEP-Site' };
+function normalizeDept(v){
+  const s = cleanStr(v);
+  if(!s) return s;
+  const alias = DEPT_ALIASES[s.toLowerCase()];
+  return alias || s;
 }
 function numOrNull(v){
   if(v===null || v===undefined || v==='') return null;
@@ -2582,7 +2601,12 @@ function applyUploadOverrides(){
   // 1. Full-replace override (a re-uploaded master staff list) takes precedence over the embedded baseline
   try{
     const full = JSON.parse(localStorage.getItem(LS_FULL_DATA_OVERRIDE_KEY) || 'null');
-    if(full){
+    if(full && full._schemaVersion !== UPLOAD_SCHEMA_VERSION){
+      // Saved by an older (possibly buggy) build of the parser — don't reapply it, and clear it
+      // out so it doesn't keep shadowing the correct embedded baseline on every future load.
+      console.warn('Discarding a previously-uploaded dataset saved by an older version of this dashboard. Please re-upload your Excel file.');
+      localStorage.removeItem(LS_FULL_DATA_OVERRIDE_KEY);
+    } else if(full){
       DUBAI.length = 0; DUBAI.push(...full.dubai);
       INDIA.length = 0; INDIA.push(...full.india);
       TEMP.length = 0; TEMP.push(...full.tempStaff);
@@ -2808,10 +2832,10 @@ function parseMasterListUpload(wb){
   for(let i=1;i<dxbAoa.length;i++){
     const r = dxbAoa[i]; if(!r || !r[8]) continue;
     dubai.push({
-      name:cleanName(r[8]), payroll:r[4], dept:r[3], role:r[5], deptRole:r[6], jobTitle:r[9], grading:r[7],
-      gender:r[17], nationality:r[18], startDate:excelCellToISO(r[10]), age:numOrNull(r[16]), contractType:r[2], visaType:r[26],
-      lineManager:r[29], degree:r[57], university:r[58], gradCountry:r[59], gradYear:numOrNull(r[60]),
-      masterDegree:r[61], masterUniversity:r[62], basic:numOrNull(r[34]), accommodation:numOrNull(r[35]),
+      name:cleanName(r[8]), payroll:cleanStr(r[4]), dept:normalizeDept(r[3]), role:cleanStr(r[5]), deptRole:cleanStr(r[6]), jobTitle:cleanStr(r[9]), grading:r[7],
+      gender:cleanStr(r[17]), nationality:cleanStr(r[18]), startDate:excelCellToISO(r[10]), age:numOrNull(r[16]), contractType:cleanStr(r[2]), visaType:cleanStr(r[26]),
+      lineManager:cleanStr(r[29]), degree:cleanStr(r[57]), university:cleanStr(r[58]), gradCountry:cleanStr(r[59]), gradYear:numOrNull(r[60]),
+      masterDegree:cleanStr(r[61]), masterUniversity:cleanStr(r[62]), basic:numOrNull(r[34]), accommodation:numOrNull(r[35]),
       transport:numOrNull(r[36]), flight:numOrNull(r[37]), salary:numOrNull(r[38]), bonusPct:numOrNull(r[40]),
       contractSalary:numOrNull(r[42]), lastIncreaseDate:excelCellToISO(r[45]), salaryCutPct:numOrNull(r[68]),
       effectiveSalary:r[70]!=null?numOrNull(r[70]):numOrNull(r[38]), yearsExpFromGrad:numOrNull(r[65]),
@@ -2824,11 +2848,11 @@ function parseMasterListUpload(wb){
   for(let i=1;i<indAoa.length;i++){
     const r = indAoa[i]; if(!r || !r[8]) continue;
     india.push({
-      name:cleanName(r[8]), payroll:r[5], location:r[2], dept:r[4], role:r[6], deptRole:r[11], jobTitle:r[10], grading:r[7],
-      gender:r[17], startDate:excelCellToISO(r[12]), age:numOrNull(r[16]), contractType:r[3], lineManager:r[20],
+      name:cleanName(r[8]), payroll:cleanStr(r[5]), location:cleanStr(r[2]), dept:normalizeDept(r[4]), role:cleanStr(r[6]), deptRole:cleanStr(r[11]), jobTitle:cleanStr(r[10]), grading:r[7],
+      gender:cleanStr(r[17]), startDate:excelCellToISO(r[12]), age:numOrNull(r[16]), contractType:cleanStr(r[3]), lineManager:cleanStr(r[20]),
       salaryOfferINR:numOrNull(r[22]), salaryAED:numOrNull(r[23]), marginCost:numOrNull(r[24]),
       amortisedSoftware:numOrNull(r[26]), totalCostToAccess:numOrNull(r[27]), bonusPct:numOrNull(r[28]),
-      lastIncreaseDate:excelCellToISO(r[29]), degree:r[33], university:r[34], gradCountry:r[35], gradYear:numOrNull(r[36]),
+      lastIncreaseDate:excelCellToISO(r[29]), degree:cleanStr(r[33]), university:cleanStr(r[34]), gradCountry:cleanStr(r[35]), gradYear:numOrNull(r[36]),
       yearsExpFromGrad:numOrNull(r[37]), yearsIn9E:numOrNull(r[38]), totalExp:numOrNull(r[39]),
     });
   }
@@ -2838,9 +2862,9 @@ function parseMasterListUpload(wb){
   for(let i=1;i<tempAoa.length;i++){
     const r = tempAoa[i]; if(!r || !r[7]) continue;
     tempStaff.push({
-      name:cleanName(r[7]), location:r[2], company:r[5], department:r[6], designation:r[8],
+      name:cleanName(r[7]), location:cleanStr(r[2]), company:cleanStr(r[5]), department:normalizeDept(r[6]), designation:cleanStr(r[8]),
       startDate:excelCellToISO(r[3]), endDate:excelCellToISO(r[4]), monthlyCost:numOrNull(r[9]),
-      comments:r[10], status:r[11]||'Active',
+      comments:r[10], status:cleanStr(r[11])||'Active',
     });
   }
 
@@ -2877,7 +2901,7 @@ function parseMasterListUpload(wb){
     const r = resAoa[i]; if(!r || !r[4]) continue;
     const demo = extractResignedDemographics(r);
     resigned.push({
-      entity:r[0], location:r[1], department:r[2], payroll:r[3], name:cleanName(r[4]), jobTitle:r[5],
+      entity:cleanStr(r[0]), location:cleanStr(r[1]), department:normalizeDept(r[2]), payroll:cleanStr(r[3]), name:cleanName(r[4]), jobTitle:cleanStr(r[5]),
       startDate:excelCellToISO(r[6]), lastWorkingDay:excelCellToISO(r[7]), age:demo.age, gender:demo.gender,
       nationality:demo.nationality, salary:demo.salary, exitType:'Unclassified',
     });
@@ -2918,7 +2942,7 @@ function parseMasterListUpload(wb){
     for(let i=srHdr+1;i<srAoa.length;i++){
       const r = srAoa[i]; if(!r || !r[2]) continue;
       salaryReduction.push({
-        dept:r[1], name:cleanName(r[2]), jobTitle:r[3], effectiveDate:excelCellToISO(r[4]),
+        dept:normalizeDept(r[1]), name:cleanName(r[2]), jobTitle:cleanStr(r[3]), effectiveDate:excelCellToISO(r[4]),
         currentSalary:numOrNull(r[5]), cutPct:numOrNull(r[6]), reducedAmount:numOrNull(r[7]),
         reducedSalary:numOrNull(r[8]), emailSent:r[9], signed:!!r[10], inRoster:r[11],
       });
@@ -2938,7 +2962,7 @@ function parseMasterListUpload(wb){
     });
   }catch(e){ console.error('Could not carry forward custom employees', e); }
 
-  const fullData = { dubai, india, tempStaff, resigned, costProjection, salaryReduction };
+  const fullData = { dubai, india, tempStaff, resigned, costProjection, salaryReduction, _schemaVersion: UPLOAD_SCHEMA_VERSION };
   localStorage.setItem(LS_FULL_DATA_OVERRIDE_KEY, JSON.stringify(fullData));
 
   DUBAI.length = 0; DUBAI.push(...dubai);
