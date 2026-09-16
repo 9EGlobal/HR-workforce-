@@ -2588,6 +2588,7 @@ function applyUploadOverrides(){
       TEMP.length = 0; TEMP.push(...full.tempStaff);
       RESIGNED.length = 0; RESIGNED.push(...full.resigned);
       if(full.costProjection) Object.assign(COST_PROJ, full.costProjection);
+      if(full.salaryReduction && full.salaryReduction.length){ SAL_RED.length = 0; SAL_RED.push(...full.salaryReduction); }
     }
   }catch(e){ console.error('Could not apply full data override', e); }
 
@@ -2845,23 +2846,54 @@ function parseMasterListUpload(wb){
 
   const resAoa = sheetAOA(wb, 'Resigned & Terminated') || [];
   const resigned = [];
+  // Columns 8-12 (Date of Birth, Age, Gender, Nationality, Monthly Salary) are read by value type,
+  // not fixed position: when a row's Date of Birth is left blank in the source sheet, Excel
+  // shifts every value after it one column to the left, so a fixed index reads Age into Gender's
+  // slot and so on. Reading by what each value actually looks like (a small integer vs. "Male"/
+  // "Female" vs. a country name vs. a larger salary figure) works for both well-formed and
+  // shifted rows.
+  const NOT_A_NATIONALITY = /^(yes|no|n\/a|na|extended|pending|tbc|x)$/i;
+  function extractResignedDemographics(row){
+    const window = [row[8], row[9], row[10], row[11], row[12]];
+    let gender=null, age=null, nationality=null, salary=null;
+    const leftover=[];
+    window.forEach(v=>{
+      if(v===null || v===undefined || v==='') return;
+      if(v instanceof Date) return; // Date of Birth — not used elsewhere in the app
+      if(typeof v==='string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return; // ISO date string, same as above
+      if(typeof v==='string' && /^(male|female)$/i.test(v.trim())){ gender = v.trim(); return; }
+      leftover.push(v);
+    });
+    leftover.forEach(v=>{
+      if(typeof v==='number'){
+        if(age===null && v>=15 && v<=100) age = v; else salary = v;
+      } else if(typeof v==='string' && nationality===null && !NOT_A_NATIONALITY.test(v.trim())){
+        nationality = v;
+      }
+    });
+    return {age, gender, nationality, salary};
+  }
   for(let i=1;i<resAoa.length;i++){
     const r = resAoa[i]; if(!r || !r[4]) continue;
+    const demo = extractResignedDemographics(r);
     resigned.push({
       entity:r[0], location:r[1], department:r[2], payroll:r[3], name:cleanName(r[4]), jobTitle:r[5],
-      startDate:excelCellToISO(r[6]), lastWorkingDay:excelCellToISO(r[7]), age:numOrNull(r[9]), gender:r[10],
-      nationality:r[11], salary:typeof r[12]==='number'?r[12]:null, exitType:'Unclassified',
+      startDate:excelCellToISO(r[6]), lastWorkingDay:excelCellToISO(r[7]), age:demo.age, gender:demo.gender,
+      nationality:demo.nationality, salary:demo.salary, exitType:'Unclassified',
     });
   }
 
   const cpAoa = sheetAOA(wb, 'Cost Projection') || [];
-  function findRow(labelSubstr){ for(let i=0;i<cpAoa.length;i++){ const row=cpAoa[i]; if(row && row[1] && String(row[1]).indexOf(labelSubstr)!==-1) return i; } return -1; }
+  // This sheet's populated range starts at column B (column A is entirely blank throughout), so
+  // SheetJS's AOA output is compacted to start at that column: what looks like column B in Excel
+  // is array index 0, not index 1. Every index below is one less than the raw column position.
+  function findRow(labelSubstr){ for(let i=0;i<cpAoa.length;i++){ const row=cpAoa[i]; if(row && row[0] && String(row[0]).indexOf(labelSubstr)!==-1) return i; } return -1; }
   function extractTable(hdrIdx){
     const table=[]; let total=null; let i=hdrIdx+2;
     while(i<cpAoa.length){
-      const row = cpAoa[i]; const dept = row?row[1]:null;
+      const row = cpAoa[i]; const dept = row?row[0]:null;
       if(dept==null) break;
-      const entry = { dept, permanent:numOrNull(row[2]), temp:numOrNull(row[3]), monthlyBase:numOrNull(row[4]), totalToYearEnd:numOrNull(row[11]) };
+      const entry = { dept, permanent:numOrNull(row[1]), temp:numOrNull(row[2]), monthlyBase:numOrNull(row[3]), totalToYearEnd:numOrNull(row[10]) };
       if(String(dept).toLowerCase().indexOf('total')!==-1){ total=entry; i++; break; }
       table.push(entry); i++;
     }
@@ -2872,10 +2904,27 @@ function parseMasterListUpload(wb){
   const indT = extractTable(findRow('INDIA'));
   const combT = extractTable(findRow('COMBINED'));
   const costProjection = {
-    dubaiMonthlySaving: numOrNull(savingRow[5]), dubaiSixMonthSaving: numOrNull(savingRow[9]),
+    dubaiMonthlySaving: numOrNull(savingRow[4]), dubaiSixMonthSaving: numOrNull(savingRow[8]),
     dubai: dxbT.table, dubaiTotal: dxbT.total, india: indT.table, indiaTotal: indT.total,
     combined: combT.table, combinedTotal: combT.total,
   };
+
+  // ---- Salary Reduction register (previously never read from uploads at all) ----
+  const srAoa = sheetAOA(wb, 'Salary Reduction (Jun-26)') || [];
+  const salaryReduction = [];
+  let srHdr = -1;
+  for(let i=0;i<srAoa.length;i++){ if(srAoa[i] && srAoa[i][0]==='No.'){ srHdr = i; break; } }
+  if(srHdr!==-1){
+    for(let i=srHdr+1;i<srAoa.length;i++){
+      const r = srAoa[i]; if(!r || !r[2]) continue;
+      salaryReduction.push({
+        dept:r[1], name:cleanName(r[2]), jobTitle:r[3], effectiveDate:excelCellToISO(r[4]),
+        currentSalary:numOrNull(r[5]), cutPct:numOrNull(r[6]), reducedAmount:numOrNull(r[7]),
+        reducedSalary:numOrNull(r[8]), emailSent:r[9], signed:!!r[10], inRoster:r[11],
+      });
+    }
+  }
+
 
   // Manually-added employees (via Add Employee) wouldn't be in a fresh master-list export -
   // carry them forward rather than silently losing them. Do this before persisting so the
@@ -2889,7 +2938,7 @@ function parseMasterListUpload(wb){
     });
   }catch(e){ console.error('Could not carry forward custom employees', e); }
 
-  const fullData = { dubai, india, tempStaff, resigned, costProjection };
+  const fullData = { dubai, india, tempStaff, resigned, costProjection, salaryReduction };
   localStorage.setItem(LS_FULL_DATA_OVERRIDE_KEY, JSON.stringify(fullData));
 
   DUBAI.length = 0; DUBAI.push(...dubai);
@@ -2897,6 +2946,7 @@ function parseMasterListUpload(wb){
   TEMP.length = 0; TEMP.push(...tempStaff);
   RESIGNED.length = 0; RESIGNED.push(...resigned);
   Object.assign(COST_PROJ, costProjection);
+  if(salaryReduction.length){ SAL_RED.length = 0; SAL_RED.push(...salaryReduction); }
 
   summary.updated = dubai.length + india.length;
   summary.tempActive = tempStaff.filter(t=>t.status==='Active').length;
